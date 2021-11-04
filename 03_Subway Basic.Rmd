@@ -1,0 +1,183 @@
+---
+title: "03 Subway basic"
+output:
+  word_document: default
+  html_document: default
+---
+
+From now on, this is a basic analysis for the subway dataset.
+
+```{r}
+#setwd("C:/Users/김민/Desktop/대학/3학기/데사R/EDA")
+subway <- read.csv("03_Subway_Nov.csv")
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(stringr)
+```
+
+<Data pre-processing>
+Make total_p(total passenger = total_p_riding + total_p_alighting) column.
+Make df 'corona' that shows daily infection and social distancing level.
+Extract only necessary data into df 'b_c' (boarding_corona).
+```{r}
+subway <- subway %>% mutate(total_p = total_p_riding+total_p_alighting)
+
+daily_confirmed <- c(42, 25, 22, 42, 50, 40, 37, 54, 46, 35, 45, 53, 74, 69, 85, 80, 90, 92, 108, 132, 156, 121, 112, 132, 120, 213, 204, 178, 158, 159)
+distancing_level <- factor(c("bf5", "bf5", "bf5", "bf5", "bf5", "bf5", 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.5, 1.5, 1.5, 1.5, 1.5, 2, 2, 2, 2, 2, 2, 2), levels = c("bf5", 1, 1.5, 2), ordered = TRUE)
+date <- c(20201101, 20201102, 20201103, 20201104, 20201105, 20201106, 20201107, 20201108, 20201109, 20201110, 20201111, 20201112, 20201113, 20201114, 20201115, 20201116, 20201117, 20201118, 20201119, 20201120, 20201121, 20201122, 20201123, 20201124, 20201125, 20201126, 20201127, 20201128, 20201129, 20201130)
+
+corona <- data.frame(date, daily_confirmed, distancing_level)
+
+b_c <- subway %>% group_by(date) %>% summarise(daily_riding = sum(total_p_riding), daily_alighting = sum(total_p_alighting), total_boarding = sum(total_p_riding, total_p_alighting)) %>% cbind(corona[2:3])
+```
+
+
+<Preview dataset>
+```{r}
+# <Corona outbreak trend in Seoul in November 2020>
+ggplot(corona, aes(x=date, y=daily_confirmed))+
+  geom_line(color = "red")+
+  geom_smooth(method = "lm")+
+  ggtitle("Coronavirus Confirmed in Seoul in November 2020")+
+  scale_x_continuous(breaks=seq(20201101, 20201130, 5))
+#Corona confirmed cases have increased linearly over time on November 2020.
+
+# <Seoul subway usage trends for November 2020>
+ggplot(b_c, aes(x=date, y=total_boarding)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks=seq(20201101, 20201130, 5)) +
+  geom_smooth(method = 'lm', se=F) +
+  ggtitle('Total Passenger by Day')  +
+  xlab("Date") +
+  ylab("Total boarding")
+#Insight: Every weekend, total boarding of subway declined dramatically. We guess that this is because people don't go to work on weekends. (People in Seoul use the subway a lot when commuting to work due to traffic congestion.)
+#Insight: As the end of the month, overall, total boarding tended to decrease.
+```
+
+<Overall Analysis>
+Overall trend of subway use due to corona virus and adjustment of social distancing stage.
+```{r}
+#chart1 + linear regression
+#Hypothesis: Due to increasing social distancing level, the users of subway will be decreased.
+ggplot(b_c, aes(x=daily_confirmed , y=total_boarding))+
+  geom_point(color = "red")+
+  geom_smooth(method="lm")+
+  xlab("Number of corona confirmed per day")+
+  ylab("Total getting on and off the subway by day")+
+  ggtitle("Comparison of Daily Confirmed Cases and Total Subway Boarding")
+#Result:  The x-axis lists the number of corona confirmed patients per day in ascending order. The y-axis represents the total number of getting on and off the subway. The y-axis is inversely proportional to the x-axis.
+
+#p-value
+summary(lm(daily_confirmed ~ total_boarding, data=b_c))
+#p-value: 0.102441 > 0.05
+
+###IMPROVEMENT###
+#p-value 2
+onlyweekdays <- b_c %>% filter(!(date %in% c(20201101, 20201107, 20201108, 20201114, 20201115, 20201121, 20201122, 20201128, 20201129)))
+summary(lm(daily_confirmed ~ total_boarding, data=onlyweekdays))
+# p-value: 3.84e-06 < 0.05
+
+#From the EDA of the bus data, it was confirmed that the difference in the total number of rides on weekdays and weekends was large. We speculated that the use of public transportation was reduced because people do not commute to work on weekends and often use their own vehicles for leisure on weekends.
+
+#Insight: The significance of linear regression for all November data including weekends was low, but the significance of total boarding and daily_confirmed was high in the 'onlyweekdays' data frame including weekdays only.
+
+
+
+distlv <- b_c %>% group_by(distancing_level) %>% summarise(days = n(), confirmed = sum(daily_confirmed), boarding = sum(total_boarding)) %>% mutate(b_p_d = boarding/days) %>% mutate(delta_b_p_d = b_p_d - lag(b_p_d)) %>% mutate(c_p_d = confirmed/days)
+#Data frame for analysis by distance step.
+
+#chart2
+ggplot(distlv, aes(x=reorder(distancing_level, -b_p_d), y=b_p_d))+
+  geom_col(fill = "lightblue", width=0.6)+
+  ylab("Total boarding per day")+
+  xlab("Social distancing level")+
+  ggtitle("The Number of Getting on and off the Subway by Social Distance")
+#As the social distancing level was adjusted upward, the total number of getting on and off the subway per day decreased.
+
+#chart3
+ggplot(distlv[2:4,], aes(x=reorder(distancing_level, -b_p_d), y=abs(delta_b_p_d)))+
+  geom_col(width=0.5, fill="darkblue")+
+  xlab("Social distancing level")+
+  ylab("Change in average boarding per day")+
+  ggtitle("Changes in the Average Rides per Day due to Adjustment of the Distance Step")+
+  theme(title = element_text(size=10))
+#When adjusted from Stage 1 to Stage 1.5, the amount of getting on and off the subway(column: delta_b_p_d) decreased significantly.
+```
+
+<Combining Data>
+Combine 'subway' and 'corona' dataframe to make a comparison by subway line according to the distancing policy.
+```{r}
+subd_lv <- left_join(subway, corona) %>% select(date, line_name, total_p, daily_confirmed, distancing_level) %>% group_by(line_name, distancing_level) %>% summarise(total_boarding = sum(total_p)) %>% group_by(line_name) %>% mutate(delta_boarding = total_boarding - lag(total_boarding))
+
+#2,3,4, Gyeon-bu line: large fluctuation in delta
+#Janghang, Gyeongang, Ui-sinseol, Suin Line: small fluctuation in delta
+
+distdays <- distlv %>% select(distancing_level, days)
+subd_lv_2 <- left_join(subd_lv, distdays) %>% mutate(total_b_p_d = total_boarding%/%days) %>% mutate(delta_b_p_d = total_b_p_d - lag(total_b_p_d))
+
+distancing_level <- ordered(factor(c("bf5", 1, 1.5, 2)), levels=c("bf5", 1, 1.5, 2))
+d_l_c <- ordered(factor(c("None", "bf5-1", "1-1.5", "1.5-2")), levels=c("None", "bf5-1", "1-1.5", "1.5-2"))
+joindf <- data.frame(distancing_level, d_l_c)
+
+ordered_subd_lv_2 <- left_join(subd_lv_2, joindf) %>% filter(distancing_level %in% c(1, 1.5, 2)) %>% arrange(delta_b_p_d)
+#Data frame for analysis of fluctuations by subway line and by distancing level.
+```
+
+<Analysis of each line on the change in the amount of subway rides when the social distancing stage changes>
+(I used ggsave() and theme() to adjust the graph and font size properly. But for the submission, ggsave() and theme() were removed for brevity. So, please understand that the shape of the graph can be a little awkward.)
+```{r}
+#chart 1
+#Hypothesis: There will be differences by lines in the changing trend of subway boarding.
+ggplot(ordered_subd_lv_2, aes(x=reorder(line_name, delta_b_p_d), y=delta_b_p_d, fill=as.factor(d_l_c)))+
+  geom_col()+
+  facet_wrap(~ as.factor(d_l_c), ncol=3)+
+  scale_fill_discrete(name="Distancing Level Change")+
+  ylab("Delta boarding per day")+
+  xlab("Line name")+
+  ggtitle("Changes in the amount of boarding for each line according to the change in distance step")
+
+#Result: The routes with the most change(ex: line 2,3,4 and Gyeongbu line) and the routes with the least change(ex: Janghang, Ui-sinseol, Gyeonggang, Suin line) almost overlap in all three graphs.
+
+#Insight: In the latter case(small fluctuation), it can be inferred that the purpose of boarding is for essential movement such as commuting. Even in the coronavirus situation, it is inevitable to go to work, so it can be assumed that the amount of fluctuation in the use of the subway for work is not large.
+
+#Insight2: But in the former case(large fluctuation), the purpose would be for non-essential movement such as leisure. This is because if the number of confirmed cases increases rapidly, people will refrain from going out for non-essential purposes.
+
+
+
+
+lv1 <- ordered_subd_lv_2 %>% filter(distancing_level == 1)
+lv1.5 <- ordered_subd_lv_2 %>% filter(distancing_level == 1.5)
+lv2 <- ordered_subd_lv_2 %>% filter(distancing_level == 2)
+
+#Chart 2,3,4: I plotted the delta value for each subway lines as a bar graph at each time the distancing level was changed.
+#Result: Routes with a large delta value and routes with a small delta value appear similar in each graph.
+
+#chart2 (1 ~ 1.5)
+ggplot(lv1.5, aes(x=reorder(line_name, delta_b_p_d), y=delta_b_p_d))+
+  geom_col(fill="green", width=0.5)+
+  xlab("Line name")+
+  ylab("Total change per day")+
+  ggtitle("Changes in the amount of getting on and off the subway compared to the previous distance level(1 - 1.5)")+
+  theme(title = element_text(size=8))
+
+#chart3 (bf5 ~ 1)
+ggplot(lv1, aes(x=reorder(line_name, delta_b_p_d), y=delta_b_p_d))+
+  geom_col(fill="blue", width=0.5)+
+  ggtitle("Changes in the amount of getting on and off the subway compared to the previous distance level(bf5 - 1)")+
+  xlab("Line name")+
+  ylab("Total change per day")+
+  theme(title = element_text(size=8))
+
+#chart4 (1.5 ~ 2)
+ggplot(lv2, aes(x=reorder(line_name, delta_b_p_d), y=delta_b_p_d))+
+  geom_col(fill="purple", width=0.5)+
+  ggtitle("Changes in the amount of getting on and off the subway compared to the previous distance level(1.5 - 2)")+
+  xlab("Line name")+
+  ylab("Total change per day")+
+  theme(title = element_text(size=8))
+```
+Thank  you for the semester! It was a rewarding time to learn thoroughly about R.
